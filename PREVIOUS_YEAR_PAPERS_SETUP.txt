@@ -1,0 +1,13 @@
+PREVIOUS YEAR PAPERS SETUP
+
+1. Replace your old index.html on Netlify with the index.html from this ZIP.
+2. In Supabase -> SQL Editor, run the FULL updated setup.sql from this ZIP.
+3. Do not put any service-role/secret key in index.html.
+4. Login to the Admin Panel using your existing admin account.
+5. Open Admin Panel -> Previous Year Paper.
+6. Upload PDF + Year + Class/Exam + Subject + Title.
+7. Students will see the papers under "Previous Year Papers".
+
+IMPORTANT:
+The previous-year-papers Storage bucket is PUBLIC so students can open free papers directly.
+Your paid notes-pdfs bucket remains PRIVATE.

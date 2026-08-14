@@ -1,0 +1,14 @@
+PREVIOUS YEAR PAPERS V4 - CUSTOM YEAR
+
+Student Year:
+- Year is now a free-entry field.
+- Type 2024, 2025, 2026, etc.
+- Leave it empty to show All Years.
+
+Admin Year:
+- Admin can type the year directly while uploading.
+
+No Supabase SQL is required for this change because the existing year column is already an integer.
+
+Deployment:
+- Replace the website files with this V4 ZIP on Netlify.

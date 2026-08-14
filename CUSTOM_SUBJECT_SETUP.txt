@@ -1,0 +1,16 @@
+PREVIOUS YEAR PAPERS V3 - CUSTOM SUBJECT
+
+Subject is now a free-text field.
+
+Students:
+- Can type any subject name, e.g. Physics, Chemistry, Mathematics, Biology, Economics, History.
+- A suggestion list is available, but the student is not limited to those suggestions.
+
+Admin:
+- Can type any subject name while uploading a paper.
+- Suggested subjects are provided for convenience.
+- No Supabase database change is required because subject is already a text column.
+
+IMPORTANT:
+Only replace the website files with this V3 ZIP on Netlify.
+You do NOT need to run new SQL for the custom-subject change.

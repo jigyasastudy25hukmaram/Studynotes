@@ -1,0 +1,19 @@
+PREVIOUS YEAR PAPERS V2
+
+This version adds an Exam Type field.
+
+Exam Type options:
+1. Ardhvarshik Pariksha (Half-Yearly)
+2. Varshik Pariksha (Annual)
+3. Pre-Board Pariksha
+4. Abhyas / Practice Paper
+5. Ikai Pariksha (Unit Test)
+6. Board Pariksha
+7. Other
+
+SETUP:
+1. Replace the website files with this V2 ZIP on Netlify.
+2. Run the FULL setup.sql in Supabase SQL Editor once.
+3. The SQL adds the exam_type column if it does not already exist.
+4. Admin Panel -> Previous Year Paper -> select Exam Type while uploading.
+5. Students can filter by Year, Exam Type, Class/Exam and Subject.

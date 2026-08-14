@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StudyNotes Store</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f5f7fb;color:#182033}
+header{background:linear-gradient(135deg,#302477,#654fc4);color:#fff;padding:18px 5%;display:flex;justify-content:space-between;align-items:center}
+.logo{font-size:22px;font-weight:900}.badge{font-size:12px;background:#ffffff22;padding:7px 10px;border-radius:20px}
+.wrap{max-width:1150px;margin:auto;padding:28px 5%}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.tab{border:0;padding:11px 16px;border-radius:10px;background:#fff;cursor:pointer;font-weight:800}.tab.active{background:#5b4bb7;color:#fff}
+.panel{display:none;background:#fff;padding:24px;border-radius:18px;box-shadow:0 8px 30px #17203312}.panel.active{display:block}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}
+input,select,textarea{width:100%;padding:12px;border:1px solid #d9ddea;border-radius:10px;margin:6px 0 14px;font:inherit}
+label{font-weight:700;font-size:14px}.btn{border:0;border-radius:10px;padding:12px 16px;background:#5b4bb7;color:#fff;font-weight:800;cursor:pointer}.btn.gray{background:#e9ebf5;color:#30374a}.btn.red{background:#b83232}
+.note{border:1px solid #e5e7ef;border-radius:15px;padding:17px;background:#fff}.note h3{margin:8px 0}.price{font-size:22px;font-weight:900}.small{font-size:13px;color:#687184;line-height:1.5}
+.alert{padding:13px;border-radius:10px;margin:10px 0;background:#fff8df;border:1px solid #efd582;color:#634d05}
+.success{background:#eaf8ef;border-color:#9ed3ae;color:#176433}.qr{max-width:230px;width:100%;border:1px solid #ddd;border-radius:12px;padding:8px;background:white}
+.cover{width:100%;height:150px;object-fit:cover;border-radius:10px}
+.hidden{display:none!important}.danger{color:#9b2020}.status{font-weight:700}
+@media(max-width:700px){header{padding:15px 4%}.wrap{padding:22px 4%}}
+</style>
+</head>
+<body>
+<header>
+ <div class="logo">📚 StudyNotes Store</div>
+ <div class="badge" id="authBadge">Student Store</div>
+</header>
+
+<div class="wrap">
+ <div class="tabs">
+  <button class="tab active" onclick="show('store',this)">🛒 Student Store</button>
+  <button class="tab" onclick="show('papers',this)">📚 Previous Year Papers</button>
+  <button class="tab hidden" id="adminTab" onclick="show('admin',this)">⚙️ Admin Panel</button>
+  <button class="tab hidden" id="paymentTab" onclick="show('settings',this)">💳 Payment / QR</button>
+ </div>
+
+ <section id="store" class="panel active">
+  <h2>🛒 Student Store</h2>
+  <p class="small">Notes यहाँ से देखें। Paid PDF केवल verified payment के बाद सुरक्षित तरीके से खोले जाएंगे.</p>
+  <div id="storeList" class="grid"></div>
+ </section>
+
+ <section id="papers" class="panel">
+  <h2>📚 Previous Year Question Papers</h2>
+  <div id="paperLock" class="alert">🔐 Previous Year Papers देखने के लिए Access Code डालें। Code के बिना papers और PDF उपलब्ध नहीं होंगे।
+   <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+    <input id="paperAccessCode" type="password" inputmode="numeric" autocomplete="off" placeholder="Access Code" style="max-width:260px">
+    <button class="btn" onclick="unlockPapers()">🔓 Unlock</button>
+   </div>
+   <div id="paperLockMsg" class="small" style="margin-top:8px"></div>
+  </div>
+  <div id="paperContent" class="hidden">
+  <p class="small">पिछले वर्षों के question papers यहाँ से year, exam type, class और subject के अनुसार देखें। Year और Subject आप खुद लिख सकते हैं।</p>
+  <div class="grid">
+   <div><label>Year</label><input id="paperYear" type="number" min="1900" max="2100" inputmode="numeric" placeholder="All Years — जैसे 2024 या 2025" oninput="loadPapers()"></div>
+   <div><label>Exam Type</label><select id="paperExamType" onchange="loadPapers()">
+    <option value="">All Exams</option>
+    <option>अर्धवार्षिक परीक्षा (Half-Yearly)</option>
+    <option>वार्षिक परीक्षा (Annual)</option>
+    <option>प्री-बोर्ड परीक्षा (Pre-Board)</option>
+    <option>अभ्यास / Practice Paper</option>
+    <option>इकाई परीक्षा (Unit Test)</option>
+    <option>बोर्ड परीक्षा (Board Exam)</option>
+    <option>अन्य</option>
+   </select></div>
+   <div><label>Class / Exam</label><input id="paperClass" placeholder="जैसे 10" oninput="loadPapers()"></div>
+   <div><label>Subject</label>
+    <input id="paperSubject" list="subjectSuggestions" placeholder="जैसे Physics, Chemistry, Maths" oninput="loadPapers()">
+    <datalist id="subjectSuggestions">
+     <option value="Physics"><option value="Chemistry"><option value="Mathematics"><option value="Biology">
+     <option value="Economics"><option value="History"><option value="Geography"><option value="Political Science">
+     <option value="Accountancy"><option value="Business Studies"><option value="English"><option value="Hindi">
+     <option value="Science"><option value="Social Science"><option value="Computer Science"><option value="Other">
+    </datalist>
+   </div>
+  </div>
+  <div id="papersList" class="grid"></div>
+  </div>
+ </section>
+
+ <section id="admin" class="panel">
+  <h2>⚙️ Admin Panel</h2>
+  <div id="loginBox">
+   <p class="small">Admin access के लिए Supabase account से login करें.</p>
+   <label>Email</label><input id="email" type="email" placeholder="admin@example.com">
+   <label>Password</label><input id="password" type="password" placeholder="Password">
+   <button class="btn" onclick="login()">Login</button>
+  </div>
+
+  <div id="adminArea" class="hidden">
+   <p><span class="status">Logged in:</span> <span id="adminEmail"></span>
+   <button class="btn gray" onclick="logout()">Logout</button></p>
+
+   <h3>📚 Add Previous Year Paper</h3>
+   <div class="grid">
+    <div>
+     <label>Exam / Paper Name</label><input id="paperName" placeholder="जैसे: Board Exam 2025">
+     <label>Year</label><input id="paperYearAdmin" type="number" min="2000" max="2100" placeholder="2025">
+     <label>Exam Type</label>
+     <select id="paperExamTypeAdmin">
+      <option>अर्धवार्षिक परीक्षा (Half-Yearly)</option>
+      <option>वार्षिक परीक्षा (Annual)</option>
+      <option>प्री-बोर्ड परीक्षा (Pre-Board)</option>
+      <option>अभ्यास / Practice Paper</option>
+      <option>इकाई परीक्षा (Unit Test)</option>
+      <option>बोर्ड परीक्षा (Board Exam)</option>
+      <option>अन्य</option>
+     </select>
+     <label>Class / Exam</label><input id="paperClassAdmin" placeholder="जैसे: 10th Board">
+    </div>
+    <div>
+     <label>Subject</label>
+     <input id="paperSubjectAdmin" list="adminSubjectSuggestions" placeholder="जैसे Physics, Chemistry, Economics" required>
+     <datalist id="adminSubjectSuggestions">
+      <option value="Physics"><option value="Chemistry"><option value="Mathematics"><option value="Biology">
+      <option value="Economics"><option value="History"><option value="Geography"><option value="Political Science">
+      <option value="Accountancy"><option value="Business Studies"><option value="English"><option value="Hindi">
+      <option value="Science"><option value="Social Science"><option value="Computer Science"><option value="Other">
+     </datalist>
+     <label>Paper Title</label><input id="paperTitle" placeholder="जैसे: Science Question Paper">
+     <label>PDF File</label><input id="paperPdf" type="file" accept="application/pdf">
+    </div>
+   </div>
+   <button class="btn" onclick="addPaper()">➕ Upload Previous Year Paper</button>
+   <div id="paperAdminMsg"></div>
+   <h3>Uploaded Previous Year Papers</h3><div id="paperAdminList" class="grid"></div>
+
+   <h3>🔐 Previous Year Papers Access Code</h3>
+   <p class="small">यह code students को Previous Year Papers खोलने के लिए देना होगा। PDF files भी private रहेंगी; सही code के बाद ही short-lived PDF link मिलेगा.</p>
+   <div class="grid">
+    <div>
+     <label>New Access Code</label><input id="newPaperAccessCode" type="password" inputmode="numeric" autocomplete="off" placeholder="जैसे 482915">
+     <button class="btn" onclick="savePaperAccessCode()">💾 Save Access Code</button>
+     <div id="paperCodeAdminMsg"></div>
+    </div>
+   </div>
+
+   <h3>Add New Study Note</h3>
+   <div class="grid">
+    <div>
+     <label>Book Name</label><input id="book" placeholder="जैसे: NCERT Science">
+     <label>Class</label><input id="cls" placeholder="जैसे: 10">
+     <label>Subject</label>
+     <select id="subject"><option>Science</option><option>Maths</option><option>English</option><option>Social Science</option><option>Other</option></select>
+     <label>Chapter Name / Number</label><input id="chapter" placeholder="जैसे: Chapter 1 — Chemical Reactions">
+    </div>
+    <div>
+     <label>Note Title</label><input id="title" placeholder="जैसे: Complete Revision Notes">
+     <label>Description</label><textarea id="description" placeholder="छोटा विवरण"></textarea>
+     <label>Price (₹)</label><input id="price" type="number" min="0" placeholder="49">
+     <label>PDF File</label><input id="pdf" type="file" accept="application/pdf">
+     <label>Cover Image (optional)</label><input id="cover" type="file" accept="image/*">
+    </div>
+   </div>
+   <button class="btn" onclick="addNote()">➕ Add Note</button>
+   <div id="adminMsg"></div>
+
+   <h3>Your Notes</h3><div id="adminList" class="grid"></div>
+   <h3>Payment Requests</h3><div id="ordersList"></div>
+  </div>
+ </section>
+
+ <section id="settings" class="panel">
+  <h2>💳 Payment & QR Settings</h2>
+  <div id="paymentLogin" class="alert">Admin login करें, फिर यहाँ UPI ID और QR image save कर सकते हैं.</div>
+  <div id="paymentArea" class="hidden">
+   <label>Your UPI ID</label><input id="upi" placeholder="example@upi">
+   <label>QR Code Image</label><input id="qrFile" type="file" accept="image/*">
+   <button class="btn" onclick="savePayment()">Save Payment Settings</button>
+   <div id="payMsg"></div><hr><h3>Current QR</h3><div id="qrPreview"></div>
+  </div>
+ </section>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://yugamwcbnrkgkwwtkkab.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_yCxosK2OVIgHda6OLleuHQ_rwWtD-vo";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+const PDF_BUCKET = "notes-pdfs";
+const COVER_BUCKET = "notes-covers";
+const QR_BUCKET = "payment-qr";
+
+let currentUser = null;
+let isAdmin = false;
+let paymentSettings = null;
+let adminMode = location.hash === '#admin';
+let papersUnlocked = sessionStorage.getItem('previous_year_papers_unlocked') === '1';
+let paperAccessCode = sessionStorage.getItem('previous_year_papers_code') || '';
+
+function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
+function msg(id,text,type='bad'){document.getElementById(id).innerHTML=`<div class="alert ${type==='ok'?'success':''}">${esc(text)}</div>`;}
+function show(id,btn){
+ if((id==='admin'||id==='settings') && !isAdmin){ show('store',document.querySelector('.tab.active')); return; }
+ document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+ document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+ document.getElementById(id).classList.add('active'); if(btn)btn.classList.add('active');
+ if(id==='store')loadStore(); if(id==='papers'){updatePaperLockUI(); if(papersUnlocked)loadPapers();} if(id==='admin'&&currentUser)loadAdmin(); if(id==='settings')loadPayment();
+}
+function configReady(){
+ return SUPABASE_PUBLISHABLE_KEY && !SUPABASE_PUBLISHABLE_KEY.includes("PASTE_YOUR");
+}
+async function login(){
+ if(!configReady()){msg('adminMsg','पहले index.html में Publishable key डालें.','bad');return;}
+ const {data,error}=await sb.auth.signInWithPassword({email:email.value.trim(),password:password.value});
+ if(error){msg('adminMsg',error.message);return;}
+ currentUser=data.user;
+ const {data:adminResult,error:adminError}=await sb.rpc('is_admin');
+ if(adminError || !adminResult){
+   await sb.auth.signOut();
+   currentUser=null; isAdmin=false;
+   msg('adminMsg','यह account Admin नहीं है.','bad');
+   await refreshAuth();
+   return;
+ }
+ isAdmin=true; adminMode=true; location.hash='admin'; await refreshAuth();
+}
+async function logout(){await sb.auth.signOut();currentUser=null;isAdmin=false;adminMode=false;history.replaceState(null,'',location.pathname+location.search);await refreshAuth();show('store',document.querySelector('.tab'))}
+async function refreshAuth(){
+ const {data}=await sb.auth.getUser(); currentUser=data.user||null;
+ isAdmin=false;
+ if(currentUser){
+   const {data:adminResult}=await sb.rpc('is_admin');
+   isAdmin=!!adminResult;
+   if(!isAdmin){await sb.auth.signOut();currentUser=null;}
+ }
+ adminMode=location.hash === '#admin';
+ document.getElementById('adminTab').classList.toggle('hidden',!adminMode && !isAdmin);
+ document.getElementById('paymentTab').classList.toggle('hidden',!isAdmin);
+ document.getElementById('adminArea').classList.toggle('hidden',!isAdmin);
+ document.getElementById('loginBox').classList.toggle('hidden',isAdmin);
+ document.getElementById('paymentArea').classList.toggle('hidden',!isAdmin);
+ document.getElementById('paymentLogin').classList.toggle('hidden',isAdmin);
+ document.getElementById('authBadge').textContent=isAdmin?'Admin + Student Store':'Student Store';
+ if(isAdmin){document.getElementById('adminEmail').textContent=currentUser.email||'';loadAdmin();loadPaperAdmin();loadPayment();}
+}
+
+function updatePaperLockUI(){
+ const lock=document.getElementById('paperLock');
+ const content=document.getElementById('paperContent');
+ if(!lock||!content)return;
+ lock.classList.toggle('hidden',papersUnlocked);
+ content.classList.toggle('hidden',!papersUnlocked);
+}
+
+async function unlockPapers(){
+ const code=(document.getElementById('paperAccessCode')?.value||'').trim();
+ const msgEl=document.getElementById('paperLockMsg');
+ if(!code){msgEl.textContent='कृपया Access Code डालें।';return;}
+ msgEl.textContent='Code verify हो रहा है...';
+ const {data,error}=await sb.rpc('verify_previous_year_access_code',{p_code:code});
+ if(error||data!==true){
+   papersUnlocked=false; paperAccessCode=''; sessionStorage.removeItem('previous_year_papers_unlocked'); sessionStorage.removeItem('previous_year_papers_code');
+   msgEl.textContent='❌ गलत Access Code।'; updatePaperLockUI(); return;
+ }
+ papersUnlocked=true; paperAccessCode=code;
+ sessionStorage.setItem('previous_year_papers_unlocked','1');
+ sessionStorage.setItem('previous_year_papers_code',code);
+ msgEl.textContent=''; updatePaperLockUI(); await loadPapers();
+}
+
+async function loadPapers(){
+ if(!papersUnlocked)return;
+ const year=document.getElementById('paperYear')?.value||'';
+ const cls=(document.getElementById('paperClass')?.value||'').trim().toLowerCase();
+ const sub=(document.getElementById('paperSubject')?.value||'').trim().toLowerCase();
+ const examType=document.getElementById('paperExamType')?.value||'';
+ const {data,error}=await sb.rpc('get_previous_year_papers',{p_code:paperAccessCode});
+ if(error||!Array.isArray(data)){document.getElementById('papersList').innerHTML='<div class="alert">Papers load नहीं हुए।</div>';return;}
+ const rows=data.filter(p=>
+   (!year || Number(p.year)===Number(year)) &&
+   (!examType || p.exam_type===examType) &&
+   (!sub || String(p.subject||'').toLowerCase()===sub) &&
+   (!cls || String(p.class_name||'').toLowerCase().includes(cls))
+ );
+ document.getElementById('papersList').innerHTML=rows.length?rows.map(p=>`
+  <div class="note">
+   <div style="font-size:38px">📄</div>
+   <b>${esc(p.year)} • ${esc(p.exam_type||'अन्य')} • ${esc(p.subject)}</b>
+   <h3>${esc(p.title)}</h3>
+   <div>${esc(p.exam_name||'')} • Class/Exam: ${esc(p.class_name||'')}</div>
+   <p><button class="btn" onclick="openPaper('${p.id}')">📖 View PDF</button></p>
+  </div>`).join(''):'<p class="small">इस filter में कोई paper उपलब्ध नहीं है।</p>';
+}
+
+async function openPaper(id){
+ if(!papersUnlocked || !paperAccessCode){alert('पहले Access Code डालकर Previous Year Papers unlock करें।');return;}
+ const {data,error}=await sb.functions.invoke('get-previous-year-paper',{body:{paper_id:id,access_code:paperAccessCode}});
+ if(error||!data?.url){alert(data?.error||'PDF link नहीं बन पाया।');return;}
+ window.open(data.url,'_blank','noopener');
+}
+
+async function savePaperAccessCode(){
+ if(!isAdmin){msg('paperCodeAdminMsg','Admin login required.');return;}
+ const code=(document.getElementById('newPaperAccessCode')?.value||'').trim();
+ if(code.length<4){msg('paperCodeAdminMsg','कम से कम 4 characters का code डालें.');return;}
+ const {data,error}=await sb.rpc('set_previous_year_access_code',{p_code:code});
+ if(error||data!==true){msg('paperCodeAdminMsg',error?.message||'Code save नहीं हुआ.');return;}
+ document.getElementById('newPaperAccessCode').value='';
+ msg('paperCodeAdminMsg','Access Code successfully save हो गया.','ok');
+}
+
+async function addPaper(){
+ if(!isAdmin){msg('paperAdminMsg','Admin login required.');return;}
+ const f=document.getElementById('paperPdf').files[0];
+ const year=Number(document.getElementById('paperYearAdmin').value);
+ if(!f){msg('paperAdminMsg','PDF select करें.');return;}
+ if(f.type!=='application/pdf'){msg('paperAdminMsg','केवल PDF file allowed है.');return;}
+ if(!year || year<2000 || year>2100){msg('paperAdminMsg','सही year डालें.');return;}
+ const id=crypto.randomUUID();
+ const path=`${currentUser.id}/${year}-${id}.pdf`;
+ const {error:up}=await sb.storage.from('previous-year-papers').upload(path,f,{contentType:'application/pdf',upsert:false});
+ if(up){msg('paperAdminMsg','PDF upload failed: '+up.message);return;}
+ const row={
+   id, exam_name:document.getElementById('paperName').value.trim(),
+   year, exam_type:document.getElementById('paperExamTypeAdmin').value, class_name:document.getElementById('paperClassAdmin').value.trim(),
+   subject:document.getElementById('paperSubjectAdmin').value.trim(),
+   title:document.getElementById('paperTitle').value.trim() || f.name,
+   pdf_path:path, published:true
+ };
+ const {error}=await sb.from('previous_year_papers').insert(row);
+ if(error){await sb.storage.from('previous-year-papers').remove([path]);msg('paperAdminMsg','Database error: '+error.message);return;}
+ ['paperName','paperYearAdmin','paperClassAdmin','paperTitle','paperPdf'].forEach(x=>{const e=document.getElementById(x);if(e)e.value='';});
+ msg('paperAdminMsg','Previous year paper successfully upload हो गया.','ok');
+ loadPaperAdmin(); loadPapers();
+}
+async function loadPaperAdmin(){
+ if(!isAdmin)return;
+ const {data,error}=await sb.from('previous_year_papers').select('*').order('year',{ascending:false}).order('created_at',{ascending:false});
+ if(error){document.getElementById('paperAdminList').innerHTML='<div class="alert">'+esc(error.message)+'</div>';return;}
+ document.getElementById('paperAdminList').innerHTML=data?.length?data.map(p=>`
+  <div class="note">
+   <b>${esc(p.year)} • ${esc(p.exam_type||'अन्य')} • ${esc(p.subject)}</b><h3>${esc(p.title)}</h3>
+   <div>${esc(p.exam_name||'')} • ${esc(p.class_name||'')}</div>
+   <p>${p.published?'🟢 Published':'🔴 Hidden'}</p>
+   <button class="btn gray" onclick="togglePaper('${p.id}',${!p.published})">${p.published?'Hide':'Publish'}</button>
+   <button class="btn red" onclick="deletePaper('${p.id}')">Delete</button>
+  </div>`).join(''):'<p class="small">अभी कोई previous year paper upload नहीं हुआ है।</p>';
+}
+async function togglePaper(id,val){
+ const {error}=await sb.from('previous_year_papers').update({published:val}).eq('id',id);
+ if(error)alert(error.message); else {loadPaperAdmin();loadPapers();}
+}
+async function deletePaper(id){
+ if(!confirm('यह previous year paper और इसकी PDF delete करें?'))return;
+ const {data}=await sb.from('previous_year_papers').select('pdf_path').eq('id',id).single();
+ if(data?.pdf_path)await sb.storage.from('previous-year-papers').remove([data.pdf_path]);
+ const {error}=await sb.from('previous_year_papers').delete().eq('id',id);
+ if(error)alert(error.message); else {loadPaperAdmin();loadPapers();}
+}
+
+async function loadStore(){
+ const {data,error}=await sb.from('notes').select('id,book_name,class_name,subject,chapter_name,title,description,price,cover_path,published').eq('published',true).order('created_at',{ascending:false});
+ if(error){document.getElementById('storeList').innerHTML='<div class="alert">'+esc(error.message)+'</div>';return;}
+ document.getElementById('storeList').innerHTML=data?.length?data.map(n=>`
+ <div class="note">${n.cover_path?`<img class="cover" src="${esc(n.cover_path)}">`:'<div style="font-size:42px">📘</div>'}
+ <b>${esc(n.subject)}</b><h3>${esc(n.title)}</h3><div>${esc(n.book_name||'')} • Class ${esc(n.class_name||'')}</div>
+ <p>${esc(n.chapter_name||'')}</p><p class="price">₹${Number(n.price||0)}</p>
+ <button class="btn" onclick="buy('${n.id}')">Buy / Payment</button></div>`).join(''):'<p class="small">No notes available yet.</p>';
+}
+async function addNote(){
+ if(!currentUser){msg('adminMsg','Admin login required.');return;}
+ const pdfFile=document.getElementById('pdf').files[0];
+ if(!pdfFile){msg('adminMsg','PDF select करें.');return;}
+ if(pdfFile.type!=='application/pdf'){msg('adminMsg','केवल PDF file allowed है.');return;}
+ const id=crypto.randomUUID();
+ const pdfPath=`${currentUser.id}/${id}.pdf`;
+ let coverPath=null;
+ const {error:upErr}=await sb.storage.from(PDF_BUCKET).upload(pdfPath,pdfFile,{contentType:'application/pdf',upsert:false});
+ if(upErr){msg('adminMsg','PDF upload failed: '+upErr.message);return;}
+ const coverFile=document.getElementById('cover').files[0];
+ if(coverFile){
+   coverPath=`${currentUser.id}/${id}-${coverFile.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+   const {error:e}=await sb.storage.from(COVER_BUCKET).upload(coverPath,coverFile,{contentType:coverFile.type,upsert:false});
+   if(e){msg('adminMsg','Cover upload failed: '+e.message);return;}
+ }
+ const row={id,book_name:book.value.trim(),class_name:cls.value.trim(),subject:subject.value,chapter_name:chapter.value.trim(),title:title.value.trim(),description:description.value.trim(),price:Number(price.value||0),pdf_path:pdfPath,cover_path:coverPath,published:true};
+ const {error}=await sb.from('notes').insert(row);
+ if(error){msg('adminMsg','Database error: '+error.message);return;}
+ ['book','cls','chapter','title','description','price','pdf','cover'].forEach(x=>{if(document.getElementById(x))document.getElementById(x).value=''});
+ msg('adminMsg','Note और PDF successfully Supabase में save हो गए.','ok');loadAdmin();loadStore();
+}
+async function loadAdmin(){
+ if(!currentUser)return;
+ const {data,error}=await sb.from('notes').select('*').order('created_at',{ascending:false});
+ if(error){msg('adminMsg',error.message);return;}
+ document.getElementById('adminList').innerHTML=data?.length?data.map(n=>`
+ <div class="note"><b>${esc(n.subject)}</b><h3>${esc(n.title)}</h3><div>${esc(n.book_name||'')} • Class ${esc(n.class_name||'')}</div>
+ <div>${esc(n.chapter_name||'')}</div><p class="price">₹${Number(n.price||0)}</p>
+ <p>${n.published?'🟢 Published':'🔴 Hidden'}</p>
+ <button class="btn gray" onclick="togglePublish('${n.id}',${!n.published})">${n.published?'Hide':'Publish'}</button>
+ <button class="btn red" onclick="deleteNote('${n.id}')">Delete</button></div>`).join(''):'<p class="small">No notes added yet.</p>';
+ await loadOrders();
+}
+async function togglePublish(id,val){const {error}=await sb.from('notes').update({published:val,updated_at:new Date().toISOString()}).eq('id',id);if(error)alert(error.message);else{loadAdmin();loadStore();}}
+async function deleteNote(id){
+ if(!confirm('Delete this note and its PDF?'))return;
+ const {data}=await sb.from('notes').select('pdf_path').eq('id',id).single();
+ if(data?.pdf_path)await sb.storage.from(PDF_BUCKET).remove([data.pdf_path]);
+ const {error}=await sb.from('notes').delete().eq('id',id);
+ if(error)alert(error.message);else{loadAdmin();loadStore();}
+}
+async function loadPayment(){
+ if(!currentUser)return;
+ const {data}=await sb.from('store_settings').select('*').eq('id',1).maybeSingle();
+ paymentSettings=data||null;
+ document.getElementById('upi').value=data?.upi_id||'';
+ document.getElementById('qrPreview').innerHTML=data?.qr_path?'<p>QR saved successfully.</p>':'<p class="small">No QR image saved.</p>';
+}
+async function savePayment(){
+ const f=document.getElementById('qrFile').files[0];
+ let qrPath=paymentSettings?.qr_path||null;
+ if(f){
+   qrPath=`${currentUser.id}/qr-${Date.now()}.${f.name.split('.').pop()}`;
+   const {error}=await sb.storage.from(QR_BUCKET).upload(qrPath,f,{contentType:f.type,upsert:false});
+   if(error){msg('payMsg',error.message);return;}
+ }
+ const {error}=await sb.from('store_settings').upsert({id:1,upi_id:upi.value.trim(),qr_path:qrPath,updated_at:new Date().toISOString()});
+ if(error){msg('payMsg',error.message);return;}
+ msg('payMsg','Payment settings saved.','ok');loadPayment();
+}
+async function buy(id){
+ const {data:n,error}=await sb.from('notes').select('*').eq('id',id).eq('published',true).single();
+ if(error){alert(error.message);return;}
+ const {data:s}=await sb.from('store_settings').select('*').eq('id',1).maybeSingle();
+ let qr='';
+ if(s?.qr_path){const {data:u}=sb.storage.from(QR_BUCKET).getPublicUrl(s.qr_path);qr=`<img class="qr" src="${esc(u.publicUrl)}">`;}
+ const m=document.createElement('div');m.id='modal';m.style='position:fixed;inset:0;background:#0008;z-index:30;display:flex;align-items:center;justify-content:center;padding:18px';
+ m.innerHTML=`<div style="background:white;max-width:430px;width:100%;padding:25px;border-radius:18px;position:relative">
+ <span onclick="this.closest('#modal').remove()" style="position:absolute;right:18px;top:12px;font-size:25px;cursor:pointer">×</span>
+ <h2>${esc(n.title)}</h2><p>Amount: <b>₹${Number(n.price||0)}</b></p>${qr}<p><b>UPI ID:</b> ${esc(s?.upi_id||'Not configured')}</p>
+ <p class="small">Payment करने के बाद अपना transaction/reference ID और payment screenshot submit करें. Admin verification के बाद PDF unlock होगा.</p>
+ <label>Transaction / UTR ID</label><input id="utr" placeholder="जैसे: 123456789012">
+ <label>Payment Screenshot (optional)</label><input id="proof" type="file" accept="image/*">
+ <button class="btn" onclick="submitOrder('${n.id}')">Submit Payment</button><div id="orderMsg"></div></div>`;
+ document.body.appendChild(m);
+}
+async function submitOrder(noteId){
+ const utr=document.getElementById('utr').value.trim();if(!utr){msg('orderMsg','Transaction/UTR ID डालें.');return;}
+ const proof=document.getElementById('proof').files[0];let proofPath=null;
+ if(proof){
+   const p=`public/${crypto.randomUUID()}-${proof.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+   const {error}=await sb.storage.from('payment-proofs').upload(p,proof,{contentType:proof.type,upsert:false});
+   if(error){msg('orderMsg',error.message);return;} proofPath=p;
+ }
+ const accessToken=crypto.randomUUID();
+ const {data:ord,error}=await sb.from('orders').insert({note_id:noteId,utr_id:utr,proof_path:proofPath,status:'pending',access_token:accessToken}).select('id').single();
+ if(error){msg('orderMsg',error.message);return;}
+ localStorage.setItem('studynotes_order_token_'+ord.id,accessToken);
+ msg('orderMsg','Payment request submitted. नीचे से status check करें.','ok');
+ document.getElementById('orderMsg').innerHTML += `<button class="btn" style="margin-top:10px" onclick="checkOrder('${ord.id}')">Check Payment Status</button>`;
+}
+
+async function checkOrder(orderId){
+ const token=localStorage.getItem('studynotes_order_token_'+orderId);
+ if(!token){alert('इस order का access token इस browser में नहीं मिला.');return;}
+ const {data:o,error}=await sb.rpc('check_order_status',{p_order_id:orderId,p_access_token:token}).maybeSingle();
+ if(error){alert('Order नहीं मिला या access token गलत है.');return;}
+ if(o.status!=='paid'){alert('Payment status: '+o.status+'. Admin verification के बाद फिर Check Status दबाएँ.');return;}
+ const {data:n,error:ne}=await sb.from('notes').select('pdf_path,title').eq('id',o.note_id).single();
+ if(ne||!n?.pdf_path){alert('PDF path नहीं मिला.');return;}
+ const {data:u,error:ue}=await sb.storage.from(PDF_BUCKET).createSignedUrl(n.pdf_path,300);
+ if(ue){alert('Secure PDF link नहीं बन पाया: '+ue.message);return;}
+ const a=document.createElement('a');a.href=u.signedUrl;a.target='_blank';a.rel='noopener';a.click();
+}
+async function loadOrders(){
+ const {data,error}=await sb.from('orders').select('id,note_id,utr_id,status,created_at,notes(title,price)').order('created_at',{ascending:false});
+ if(error){document.getElementById('ordersList').innerHTML='<div class="alert">'+esc(error.message)+'</div>';return;}
+ document.getElementById('ordersList').innerHTML=data?.length?data.map(o=>`
+ <div class="note" style="margin-bottom:10px"><b>${esc(o.notes?.title||'Note')}</b> — ₹${Number(o.notes?.price||0)}
+ <div>UTR: ${esc(o.utr_id)} | Status: <b>${esc(o.status)}</b></div>
+ ${o.status==='pending'?`<button class="btn" onclick="approveOrder('${o.id}')">Approve & Unlock</button> <button class="btn red" onclick="rejectOrder('${o.id}')">Reject</button>`:''}
+ </div>`).join(''):'<p class="small">No payment requests yet.</p>';
+}
+async function approveOrder(id){const {error}=await sb.from('orders').update({status:'paid',verified_at:new Date().toISOString()}).eq('id',id);if(error)alert(error.message);else loadOrders();}
+async function rejectOrder(id){const {error}=await sb.from('orders').update({status:'rejected'}).eq('id',id);if(error)alert(error.message);else loadOrders();}
+
+sb.auth.onAuthStateChange(()=>refreshAuth());
+window.addEventListener('hashchange',()=>{adminMode=location.hash==='#admin';refreshAuth();});
+(async()=>{await refreshAuth();await loadStore();await loadPapers();if(adminMode&&!isAdmin)show('admin',document.getElementById('adminTab'));})();
+</script>
+</body>
+</html>
