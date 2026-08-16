@@ -125,7 +125,6 @@ label{font-weight:700;font-size:14px}.btn{border:0;border-radius:10px;padding:12
    </div>
    <button class="btn" onclick="addPaper()">➕ Upload Previous Year Paper</button>
    <div id="paperAdminMsg"></div>
-   <div id="paperUploadDiag" class="small" style="margin-top:10px"></div>
    <h3>Uploaded Previous Year Papers</h3><div id="paperAdminList" class="grid"></div>
 
    <h3>🔐 Previous Year Papers Access Code</h3>
@@ -204,6 +203,29 @@ let paperAccessCode = sessionStorage.getItem('previous_year_papers_code') || '';
 
 function esc(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
 function msg(id,text,type='bad'){document.getElementById(id).innerHTML=`<div class="alert ${type==='ok'?'success':''}">${esc(text)}</div>`;}
+
+async function safeStorageUpload(bucket,path,file,options={}){
+  const protocol=String(location.protocol||'').toLowerCase();
+  if(protocol==='file:' || protocol==='content:'){
+    return {data:null,error:new Error('यह website अभी local file (file:// या content://) से चल रही है। Supabase Storage upload के लिए इसे GitHub/Netlify पर HTTPS URL से खोलें।')};
+  }
+  if(navigator.onLine===false){
+    return {data:null,error:new Error('Internet connection उपलब्ध नहीं है।')};
+  }
+  try{
+    const result=await Promise.race([
+      sb.storage.from(bucket).upload(path,file,options),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error('Supabase Storage request timeout (25 seconds).')),25000))
+    ]);
+    if(result?.error && /failed to fetch|networkerror|network error/i.test(result.error.message||'')){
+      result.error=new Error(`Supabase Storage तक connection नहीं बन पाया (Failed to fetch)। Bucket: ${bucket}. अगर यह page content:// या file:// से खुला है तो पहले website को HTTPS पर deploy करके खोलें; अगर HTTPS पर भी यही error आए तो bucket और Storage INSERT policy जाँचें।`);
+    }
+    return result;
+  }catch(e){
+    return {data:null,error:new Error(e?.message||'Supabase Storage upload failed.')};
+  }
+}
+
 function show(id,btn){
  if((id==='admin'||id==='settings') && !isAdmin){ show('store',document.querySelector('.tab.active')); return; }
  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
@@ -314,69 +336,17 @@ async function savePaperAccessCode(){
  msg('paperCodeAdminMsg','Access Code successfully save हो गया.','ok');
 }
 
-
-async function verifyAdminSession(){
-  try{
-    const {data,error}=await sb.auth.getSession();
-    if(error) return {ok:false,message:"Supabase session error: "+error.message};
-    if(!data?.session?.user) return {ok:false,message:"Admin session नहीं मिली. कृपया Logout करके फिर Login करें."};
-    return {ok:true};
-  }catch(e){
-    return {ok:false,message:"Supabase connection error: "+(e?.message||e)};
-  }
-}
-async function uploadPdf(bucket,path,file){
-  try{
-    const mime=(file.type||"").toLowerCase();
-    if(mime && mime!=="application/pdf"){
-      throw new Error("यह PDF file नहीं लग रही है. File का नाम .pdf होना चाहिए.");
-    }
-    if(file.size===0) throw new Error("PDF file खाली है.");
-    if(file.size>100*1024*1024) throw new Error("PDF 100 MB से बड़ी है. छोटी PDF upload करें.");
-    const result=await sb.storage.from(bucket).upload(path,file,{
-      contentType:"application/pdf",
-      cacheControl:"3600",
-      upsert:false
-    });
-    if(result?.error){
-      const e=result.error;
-      const extra=[e.statusCode,e.status,e.name].filter(Boolean).join(" / ");
-      throw new Error(e.message+(extra?" ["+extra+"]":""));
-    }
-    return result;
-  }catch(e){
-    const msg=e?.message||String(e);
-    if(/failed to fetch|networkerror|load failed/i.test(msg)){
-      throw new Error("Supabase तक connection नहीं बन पाया (Failed to fetch). Internet/VPN/Ad-blocker check करें और Supabase Storage में upload policy भी देखें.");
-    }
-    throw e;
-  }
-}
 async function addPaper(){
  if(!isAdmin){msg('paperAdminMsg','Admin login required.');return;}
  const f=document.getElementById('paperPdf').files[0];
  const year=Number(document.getElementById('paperYearAdmin').value);
- const diag=document.getElementById('paperUploadDiag');
- if(diag)diag.textContent='';
  if(!f){msg('paperAdminMsg','PDF select करें.');return;}
- if(!/\.pdf$/i.test(f.name) && (f.type||'').toLowerCase()!=='application/pdf'){msg('paperAdminMsg','केवल PDF file allowed है.');return;}
+ if(f.type!=='application/pdf'){msg('paperAdminMsg','केवल PDF file allowed है.');return;}
  if(!year || year<2000 || year>2100){msg('paperAdminMsg','सही year डालें.');return;}
-
- const session=await verifyAdminSession();
- if(!session.ok){msg('paperAdminMsg',session.message);return;}
-
  const id=crypto.randomUUID();
  const path=`${currentUser.id}/${year}-${id}.pdf`;
- if(diag)diag.textContent=`Upload हो रहा है: ${f.name} (${(f.size/1024/1024).toFixed(2)} MB)`;
-
- try{
-   await uploadPdf('previous-year-papers',path,f);
- }catch(e){
-   msg('paperAdminMsg','PDF upload failed: '+(e?.message||e));
-   if(diag)diag.innerHTML='अगर ऊपर <b>Failed to fetch</b> है, तो Supabase Storage bucket और INSERT policy की जाँच करें.';
-   return;
- }
-
+ const {error:up}=await safeStorageUpload('previous-year-papers',path,f,{contentType:'application/pdf',upsert:false});
+ if(up){msg('paperAdminMsg','PDF upload failed: '+up.message);return;}
  const row={
    id, exam_name:document.getElementById('paperName').value.trim(),
    year, exam_type:document.getElementById('paperExamTypeAdmin').value, class_name:document.getElementById('paperClassAdmin').value.trim(),
@@ -385,13 +355,8 @@ async function addPaper(){
    pdf_path:path, published:true
  };
  const {error}=await sb.from('previous_year_papers').insert(row);
- if(error){
-   await sb.storage.from('previous-year-papers').remove([path]);
-   msg('paperAdminMsg','Database error: '+error.message);
-   return;
- }
+ if(error){await sb.storage.from('previous-year-papers').remove([path]);msg('paperAdminMsg','Database error: '+error.message);return;}
  ['paperName','paperYearAdmin','paperClassAdmin','paperTitle','paperPdf'].forEach(x=>{const e=document.getElementById(x);if(e)e.value='';});
- if(diag)diag.textContent='';
  msg('paperAdminMsg','Previous year paper successfully upload हो गया.','ok');
  loadPaperAdmin(); loadPapers();
 }
@@ -437,14 +402,12 @@ async function addNote(){
  const id=crypto.randomUUID();
  const pdfPath=`${currentUser.id}/${id}.pdf`;
  let coverPath=null;
- let upErr=null;
- try{ await uploadPdf(PDF_BUCKET,pdfPath,pdfFile); }
- catch(e){ upErr={message:e?.message||String(e)}; }
+ const {error:upErr}=await safeStorageUpload(PDF_BUCKET,pdfPath,pdfFile,{contentType:'application/pdf',upsert:false});
  if(upErr){msg('adminMsg','PDF upload failed: '+upErr.message);return;}
  const coverFile=document.getElementById('cover').files[0];
  if(coverFile){
    coverPath=`${currentUser.id}/${id}-${coverFile.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
-   const {error:e}=await sb.storage.from(COVER_BUCKET).upload(coverPath,coverFile,{contentType:coverFile.type,upsert:false});
+   const {error:e}=await safeStorageUpload(COVER_BUCKET,coverPath,coverFile,{contentType:coverFile.type,upsert:false});
    if(e){msg('adminMsg','Cover upload failed: '+e.message);return;}
  }
  const row={id,book_name:book.value.trim(),class_name:cls.value.trim(),subject:subject.value,chapter_name:chapter.value.trim(),title:title.value.trim(),description:description.value.trim(),price:Number(price.value||0),pdf_path:pdfPath,cover_path:coverPath,published:true};
@@ -492,7 +455,7 @@ async function savePayment(){
  let qrPath=paymentSettings?.qr_path||null;
  if(f){
    qrPath=`${currentUser.id}/qr-${Date.now()}.${f.name.split('.').pop()}`;
-   const {error}=await sb.storage.from(QR_BUCKET).upload(qrPath,f,{contentType:f.type,upsert:false});
+   const {error}=await safeStorageUpload(QR_BUCKET,qrPath,f,{contentType:f.type,upsert:false});
    if(error){msg('payMsg',error.message);return;}
  }
  const {error}=await sb.from('store_settings').upsert({id:1,upi_id:upi.value.trim(),qr_path:qrPath,updated_at:new Date().toISOString()});
@@ -520,7 +483,7 @@ async function submitOrder(noteId){
  const proof=document.getElementById('proof').files[0];let proofPath=null;
  if(proof){
    const p=`public/${crypto.randomUUID()}-${proof.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
-   const {error}=await sb.storage.from('payment-proofs').upload(p,proof,{contentType:proof.type,upsert:false});
+   const {error}=await safeStorageUpload('payment-proofs',p,proof,{contentType:proof.type,upsert:false});
    if(error){msg('orderMsg',error.message);return;} proofPath=p;
  }
  const accessToken=crypto.randomUUID();
@@ -649,7 +612,7 @@ async function aevSave(){
   if(newPdf){
     if(newPdf.type!=='application/pdf'){msgEl.innerHTML='<div class="alert">केवल PDF file चुनें.</div>';return;}
     const newPath=`${currentUser.id}/${n.id}-updated-${Date.now()}.pdf`;
-    const {error:e}=await sb.storage.from(PDF_BUCKET).upload(newPath,newPdf,{contentType:'application/pdf',upsert:false});
+    const {error:e}=await safeStorageUpload(PDF_BUCKET,newPath,newPdf,{contentType:'application/pdf',upsert:false});
     if(e){msgEl.innerHTML='<div class="alert">PDF upload failed: '+esc(e.message)+'</div>';return;}
     if(n.pdf_path) await sb.storage.from(PDF_BUCKET).remove([n.pdf_path]);
     updates.pdf_path=newPath;
@@ -658,7 +621,7 @@ async function aevSave(){
   if(newCover){
     const ext=(newCover.name.split('.').pop()||'jpg').replace(/[^a-zA-Z0-9]/g,'');
     const newPath=`${currentUser.id}/${n.id}-cover-updated-${Date.now()}.${ext}`;
-    const {error:e}=await sb.storage.from(COVER_BUCKET).upload(newPath,newCover,{contentType:newCover.type,upsert:false});
+    const {error:e}=await safeStorageUpload(COVER_BUCKET,newPath,newCover,{contentType:newCover.type,upsert:false});
     if(e){msgEl.innerHTML='<div class="alert">Cover upload failed: '+esc(e.message)+'</div>';return;}
     if(n.cover_path) await sb.storage.from(COVER_BUCKET).remove([n.cover_path]);
     updates.cover_path=newPath;
