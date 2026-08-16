@@ -31,7 +31,7 @@ label{font-weight:700;font-size:14px}.btn{border:0;border-radius:10px;padding:12
 <div class="wrap">
  <div class="tabs">
   <button class="tab active" onclick="show('store',this)">🛒 Student Store</button>
-  <button class="tab" onclick="show('papers',this)">📚 Previous Year Papers</button>
+  <button class="tab" onclick="show('papers',this)">📚 Previous Year Papers</button><button class="tab" onclick="show('library',this)">📖 My eBooks</button>
   <button class="tab hidden" id="adminTab" onclick="show('admin',this)">⚙️ Admin Panel</button>
   <button class="tab hidden" id="paymentTab" onclick="show('settings',this)">💳 Payment / QR</button>
  </div>
@@ -125,6 +125,7 @@ label{font-weight:700;font-size:14px}.btn{border:0;border-radius:10px;padding:12
    </div>
    <button class="btn" onclick="addPaper()">➕ Upload Previous Year Paper</button>
    <div id="paperAdminMsg"></div>
+   <div id="paperUploadDiag" class="small" style="margin-top:10px"></div>
    <h3>Uploaded Previous Year Papers</h3><div id="paperAdminList" class="grid"></div>
 
    <h3>🔐 Previous Year Papers Access Code</h3>
@@ -162,6 +163,12 @@ label{font-weight:700;font-size:14px}.btn{border:0;border-radius:10px;padding:12
   </div>
  </section>
 
+
+ <section id="library" class="panel">
+  <h2>📖 My eBook Library</h2>
+  <p class="small">आपने जिन eBooks को payment verification के बाद unlock किया है, वे यहाँ मिलेंगी। Bookmark और last-read page इसी device पर save रहेंगे।</p>
+  <div id="libraryList" class="grid"></div>
+ </section>
  <section id="settings" class="panel">
   <h2>💳 Payment & QR Settings</h2>
   <div id="paymentLogin" class="alert">Admin login करें, फिर यहाँ UPI ID और QR image save कर सकते हैं.</div>
@@ -174,6 +181,10 @@ label{font-weight:700;font-size:14px}.btn{border:0;border-radius:10px;padding:12
  </section>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs" type="module"></script>
+<script>
+window.pdfjsReady=(async()=>{const m=await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs");m.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs";window.pdfjsLib=m;return m;})().catch(e=>{console.error(e);return null;});
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const SUPABASE_URL = "https://yugamwcbnrkgkwwtkkab.supabase.co";
@@ -198,7 +209,7 @@ function show(id,btn){
  document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
  document.getElementById(id).classList.add('active'); if(btn)btn.classList.add('active');
- if(id==='store')loadStore(); if(id==='papers'){updatePaperLockUI(); if(papersUnlocked)loadPapers();} if(id==='admin'&&currentUser)loadAdmin(); if(id==='settings')loadPayment();
+ if(id==='store')loadStore(); if(id==='library')loadLibrary(); if(id==='papers'){updatePaperLockUI(); if(papersUnlocked)loadPapers();} if(id==='admin'&&currentUser)loadAdmin(); if(id==='settings')loadPayment();
 }
 function configReady(){
  return SUPABASE_PUBLISHABLE_KEY && !SUPABASE_PUBLISHABLE_KEY.includes("PASTE_YOUR");
@@ -303,17 +314,69 @@ async function savePaperAccessCode(){
  msg('paperCodeAdminMsg','Access Code successfully save हो गया.','ok');
 }
 
+
+async function verifyAdminSession(){
+  try{
+    const {data,error}=await sb.auth.getSession();
+    if(error) return {ok:false,message:"Supabase session error: "+error.message};
+    if(!data?.session?.user) return {ok:false,message:"Admin session नहीं मिली. कृपया Logout करके फिर Login करें."};
+    return {ok:true};
+  }catch(e){
+    return {ok:false,message:"Supabase connection error: "+(e?.message||e)};
+  }
+}
+async function uploadPdf(bucket,path,file){
+  try{
+    const mime=(file.type||"").toLowerCase();
+    if(mime && mime!=="application/pdf"){
+      throw new Error("यह PDF file नहीं लग रही है. File का नाम .pdf होना चाहिए.");
+    }
+    if(file.size===0) throw new Error("PDF file खाली है.");
+    if(file.size>100*1024*1024) throw new Error("PDF 100 MB से बड़ी है. छोटी PDF upload करें.");
+    const result=await sb.storage.from(bucket).upload(path,file,{
+      contentType:"application/pdf",
+      cacheControl:"3600",
+      upsert:false
+    });
+    if(result?.error){
+      const e=result.error;
+      const extra=[e.statusCode,e.status,e.name].filter(Boolean).join(" / ");
+      throw new Error(e.message+(extra?" ["+extra+"]":""));
+    }
+    return result;
+  }catch(e){
+    const msg=e?.message||String(e);
+    if(/failed to fetch|networkerror|load failed/i.test(msg)){
+      throw new Error("Supabase तक connection नहीं बन पाया (Failed to fetch). Internet/VPN/Ad-blocker check करें और Supabase Storage में upload policy भी देखें.");
+    }
+    throw e;
+  }
+}
 async function addPaper(){
  if(!isAdmin){msg('paperAdminMsg','Admin login required.');return;}
  const f=document.getElementById('paperPdf').files[0];
  const year=Number(document.getElementById('paperYearAdmin').value);
+ const diag=document.getElementById('paperUploadDiag');
+ if(diag)diag.textContent='';
  if(!f){msg('paperAdminMsg','PDF select करें.');return;}
- if(f.type!=='application/pdf'){msg('paperAdminMsg','केवल PDF file allowed है.');return;}
+ if(!/\.pdf$/i.test(f.name) && (f.type||'').toLowerCase()!=='application/pdf'){msg('paperAdminMsg','केवल PDF file allowed है.');return;}
  if(!year || year<2000 || year>2100){msg('paperAdminMsg','सही year डालें.');return;}
+
+ const session=await verifyAdminSession();
+ if(!session.ok){msg('paperAdminMsg',session.message);return;}
+
  const id=crypto.randomUUID();
  const path=`${currentUser.id}/${year}-${id}.pdf`;
- const {error:up}=await sb.storage.from('previous-year-papers').upload(path,f,{contentType:'application/pdf',upsert:false});
- if(up){msg('paperAdminMsg','PDF upload failed: '+up.message);return;}
+ if(diag)diag.textContent=`Upload हो रहा है: ${f.name} (${(f.size/1024/1024).toFixed(2)} MB)`;
+
+ try{
+   await uploadPdf('previous-year-papers',path,f);
+ }catch(e){
+   msg('paperAdminMsg','PDF upload failed: '+(e?.message||e));
+   if(diag)diag.innerHTML='अगर ऊपर <b>Failed to fetch</b> है, तो Supabase Storage bucket और INSERT policy की जाँच करें.';
+   return;
+ }
+
  const row={
    id, exam_name:document.getElementById('paperName').value.trim(),
    year, exam_type:document.getElementById('paperExamTypeAdmin').value, class_name:document.getElementById('paperClassAdmin').value.trim(),
@@ -322,8 +385,13 @@ async function addPaper(){
    pdf_path:path, published:true
  };
  const {error}=await sb.from('previous_year_papers').insert(row);
- if(error){await sb.storage.from('previous-year-papers').remove([path]);msg('paperAdminMsg','Database error: '+error.message);return;}
+ if(error){
+   await sb.storage.from('previous-year-papers').remove([path]);
+   msg('paperAdminMsg','Database error: '+error.message);
+   return;
+ }
  ['paperName','paperYearAdmin','paperClassAdmin','paperTitle','paperPdf'].forEach(x=>{const e=document.getElementById(x);if(e)e.value='';});
+ if(diag)diag.textContent='';
  msg('paperAdminMsg','Previous year paper successfully upload हो गया.','ok');
  loadPaperAdmin(); loadPapers();
 }
@@ -369,7 +437,9 @@ async function addNote(){
  const id=crypto.randomUUID();
  const pdfPath=`${currentUser.id}/${id}.pdf`;
  let coverPath=null;
- const {error:upErr}=await sb.storage.from(PDF_BUCKET).upload(pdfPath,pdfFile,{contentType:'application/pdf',upsert:false});
+ let upErr=null;
+ try{ await uploadPdf(PDF_BUCKET,pdfPath,pdfFile); }
+ catch(e){ upErr={message:e?.message||String(e)}; }
  if(upErr){msg('adminMsg','PDF upload failed: '+upErr.message);return;}
  const coverFile=document.getElementById('cover').files[0];
  if(coverFile){
@@ -388,12 +458,19 @@ async function loadAdmin(){
  const {data,error}=await sb.from('notes').select('*').order('created_at',{ascending:false});
  if(error){msg('adminMsg',error.message);return;}
  document.getElementById('adminList').innerHTML=data?.length?data.map(n=>`
- <div class="note"><b>${esc(n.subject)}</b><h3>${esc(n.title)}</h3><div>${esc(n.book_name||'')} • Class ${esc(n.class_name||'')}</div>
- <div>${esc(n.chapter_name||'')}</div><p class="price">₹${Number(n.price||0)}</p>
- <p>${n.published?'🟢 Published':'🔴 Hidden'}</p>
- <button class="btn gray" onclick="togglePublish('${n.id}',${!n.published})">${n.published?'Hide':'Publish'}</button>
- <button class="btn red" onclick="deleteNote('${n.id}')">Delete</button></div>`).join(''):'<p class="small">No notes added yet.</p>';
- await loadOrders();
+  <div class="note">
+    <b>${esc(n.subject||'')}</b><h3>${esc(n.title||'')}</h3>
+    <div>${esc(n.book_name||'')} • Class ${esc(n.class_name||'')}</div>
+    <div>${esc(n.chapter_name||'')}</div>
+    <p class="price">₹${Number(n.price||0)}</p>
+    <p>${n.published?'🟢 Published':'🔴 Hidden'}</p>
+    <div style="display:flex;gap:7px;flex-wrap:wrap">
+      <button class="btn" onclick='aevViewNote(${JSON.stringify(n)})'>👁️ View PDF</button>
+      <button class="btn" onclick='aevOpenEdit(${JSON.stringify(n)})'>✏️ Edit / Change Price</button>
+      <button class="btn gray" onclick="togglePublish('${n.id}',${!n.published})">${n.published?'Hide':'Publish'}</button>
+      <button class="btn red" onclick="deleteNote('${n.id}')">🗑️ Delete</button>
+    </div>
+  </div>`).join(''):'<p class="small">No notes added yet.</p>'; await loadOrders();
 }
 async function togglePublish(id,val){const {error}=await sb.from('notes').update({published:val,updated_at:new Date().toISOString()}).eq('id',id);if(error)alert(error.message);else{loadAdmin();loadStore();}}
 async function deleteNote(id){
@@ -464,7 +541,8 @@ async function checkOrder(orderId){
  if(ne||!n?.pdf_path){alert('PDF path नहीं मिला.');return;}
  const {data:u,error:ue}=await sb.storage.from(PDF_BUCKET).createSignedUrl(n.pdf_path,300);
  if(ue){alert('Secure PDF link नहीं बन पाया: '+ue.message);return;}
- const a=document.createElement('a');a.href=u.signedUrl;a.target='_blank';a.rel='noopener';a.click();
+ addToLibrary(n);
+ ebookOpenUrl(u.signedUrl,n);
 }
 async function loadOrders(){
  const {data,error}=await sb.from('orders').select('id,note_id,utr_id,status,created_at,notes(title,price)').order('created_at',{ascending:false});
@@ -481,6 +559,200 @@ async function rejectOrder(id){const {error}=await sb.from('orders').update({sta
 sb.auth.onAuthStateChange(()=>refreshAuth());
 window.addEventListener('hashchange',()=>{adminMode=location.hash==='#admin';refreshAuth();});
 (async()=>{await refreshAuth();await loadStore();await loadPapers();if(adminMode&&!isAdmin)show('admin',document.getElementById('adminTab'));})();
+</script>
+
+<!-- REAL ADMIN NOTE EDIT / VIEW -->
+<style>
+#aevModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100000;padding:14px;overflow:auto}
+#aevCard{max-width:720px;margin:25px auto;background:#fff;border-radius:16px;padding:20px}
+#aevCard label{display:block;margin-top:10px;font-weight:700}
+#aevCard input,#aevCard textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccd1dc;border-radius:9px;margin-top:5px}
+#aevBtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:15px}
+#aevPreview{width:100%;height:70vh;border:1px solid #ddd;border-radius:10px}
+</style>
+<div id="aevModal">
+  <div id="aevCard">
+    <button class="btn gray" style="float:right" onclick="aevClose()">✕ Close</button>
+    <h2 id="aevHeading">Edit PDF</h2>
+    <div id="aevForm">
+      <label>Book / Course Name</label><input id="aevBook">
+      <label>Class</label><input id="aevClass">
+      <label>Subject</label><input id="aevSubject">
+      <label>Chapter</label><input id="aevChapter">
+      <label>Title</label><input id="aevTitle">
+      <label>Description</label><textarea id="aevDescription"></textarea>
+      <label>Price (₹)</label><input id="aevPrice" type="number" min="0" step="1">
+      <label>Replace PDF (optional)</label><input id="aevPdf" type="file" accept="application/pdf">
+      <label>Replace Cover (optional)</label><input id="aevCover" type="file" accept="image/*">
+      <div id="aevBtns">
+        <button class="btn" onclick="aevSave()">💾 Save Changes</button>
+        <button class="btn gray" onclick="aevClose()">Cancel</button>
+      </div>
+      <div id="aevMsg"></div>
+    </div>
+    <div id="aevView" style="display:none">
+      <div id="aevViewBox"></div>
+    </div>
+  </div>
+</div>
+<script>
+let aevCurrentNote=null;
+function aevClose(){document.getElementById('aevModal').style.display='none';}
+function aevOpenEdit(n){
+  aevCurrentNote=n;
+  document.getElementById('aevHeading').textContent='✏️ Edit PDF / Price';
+  document.getElementById('aevForm').style.display='block';
+  document.getElementById('aevView').style.display='none';
+  document.getElementById('aevBook').value=n.book_name||'';
+  document.getElementById('aevClass').value=n.class_name||'';
+  document.getElementById('aevSubject').value=n.subject||'';
+  document.getElementById('aevChapter').value=n.chapter_name||'';
+  document.getElementById('aevTitle').value=n.title||'';
+  document.getElementById('aevDescription').value=n.description||'';
+  document.getElementById('aevPrice').value=Number(n.price||0);
+  document.getElementById('aevPdf').value='';
+  document.getElementById('aevCover').value='';
+  document.getElementById('aevMsg').innerHTML='';
+  document.getElementById('aevModal').style.display='block';
+}
+async function aevViewNote(n){
+  document.getElementById('aevHeading').textContent='👁️ View PDF';
+  document.getElementById('aevForm').style.display='none';
+  document.getElementById('aevView').style.display='block';
+  document.getElementById('aevViewBox').innerHTML='<p>PDF खोल रहा हूँ...</p>';
+  document.getElementById('aevModal').style.display='block';
+  if(!n.pdf_path){document.getElementById('aevViewBox').innerHTML='<div class="alert">PDF path नहीं मिला.</div>';return;}
+  const {data,error}=await sb.storage.from(PDF_BUCKET).createSignedUrl(n.pdf_path,3600);
+  if(error||!data?.signedUrl){
+    document.getElementById('aevViewBox').innerHTML='<div class="alert">PDF नहीं खुल सका: '+esc(error?.message||'Unknown error')+'</div>';
+    return;
+  }
+  document.getElementById('aevViewBox').innerHTML='<button class="btn" onclick="ebookOpenUrl(\''+data.signedUrl+'\',aevCurrentNote)">📖 Open eBook Reader</button><p class="small">Full eBook reader: zoom, page navigation, bookmark और search.</p>';
+}
+async function aevSave(){
+  if(!aevCurrentNote||!currentUser||!isAdmin){alert('Admin login required.');return;}
+  const msgEl=document.getElementById('aevMsg'); msgEl.innerHTML='Saving...';
+  const n=aevCurrentNote;
+  const updates={
+    book_name:document.getElementById('aevBook').value.trim(),
+    class_name:document.getElementById('aevClass').value.trim(),
+    subject:document.getElementById('aevSubject').value,
+    chapter_name:document.getElementById('aevChapter').value.trim(),
+    title:document.getElementById('aevTitle').value.trim(),
+    description:document.getElementById('aevDescription').value.trim(),
+    price:Number(document.getElementById('aevPrice').value||0),
+    updated_at:new Date().toISOString()
+  };
+  const newPdf=document.getElementById('aevPdf').files[0];
+  const newCover=document.getElementById('aevCover').files[0];
+
+  if(newPdf){
+    if(newPdf.type!=='application/pdf'){msgEl.innerHTML='<div class="alert">केवल PDF file चुनें.</div>';return;}
+    const newPath=`${currentUser.id}/${n.id}-updated-${Date.now()}.pdf`;
+    const {error:e}=await sb.storage.from(PDF_BUCKET).upload(newPath,newPdf,{contentType:'application/pdf',upsert:false});
+    if(e){msgEl.innerHTML='<div class="alert">PDF upload failed: '+esc(e.message)+'</div>';return;}
+    if(n.pdf_path) await sb.storage.from(PDF_BUCKET).remove([n.pdf_path]);
+    updates.pdf_path=newPath;
+  }
+
+  if(newCover){
+    const ext=(newCover.name.split('.').pop()||'jpg').replace(/[^a-zA-Z0-9]/g,'');
+    const newPath=`${currentUser.id}/${n.id}-cover-updated-${Date.now()}.${ext}`;
+    const {error:e}=await sb.storage.from(COVER_BUCKET).upload(newPath,newCover,{contentType:newCover.type,upsert:false});
+    if(e){msgEl.innerHTML='<div class="alert">Cover upload failed: '+esc(e.message)+'</div>';return;}
+    if(n.cover_path) await sb.storage.from(COVER_BUCKET).remove([n.cover_path]);
+    updates.cover_path=newPath;
+  }
+
+  const {error}=await sb.from('notes').update(updates).eq('id',n.id);
+  if(error){msgEl.innerHTML='<div class="alert">Database update failed: '+esc(error.message)+'</div>';return;}
+  msgEl.innerHTML='<div class="alert success">✅ Price और PDF details सफलतापूर्वक update हो गईं.</div>';
+  await loadAdmin(); await loadStore();
+  setTimeout(aevClose,700);
+}
+</script>
+
+<style>
+#ebookModal{display:none;position:fixed;inset:0;background:#10131b;z-index:200000;color:#fff}
+.ebookTop{height:58px;display:flex;align-items:center;gap:8px;padding:8px 12px;background:#191d27;position:sticky;top:0}
+.ebookTop .etitle{font-weight:800;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ebookBtn{border:1px solid #ffffff33;background:#ffffff12;color:#fff;border-radius:8px;padding:8px 10px;cursor:pointer;font-weight:700}
+#ebookStage{height:calc(100vh - 108px);overflow:auto;text-align:center;padding:20px;background:#2b2f39}
+#ebookCanvas{display:block;margin:0 auto;background:#fff;box-shadow:0 4px 25px #0008}
+#ebookBottom{height:50px;background:#191d27;display:flex;align-items:center;justify-content:center;gap:10px;position:fixed;bottom:0;left:0;right:0}
+#ebookSearch{width:180px!important;margin:0!important;padding:8px!important;background:#fff;color:#222}
+#ebookStatus{font-size:12px;opacity:.8}
+#ebookMsg{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:#fff;color:#222;padding:9px 14px;border-radius:9px;display:none;z-index:200010}
+@media(max-width:600px){.ebookTop{gap:4px}.ebookBtn{padding:7px}.ebookTop .etitle{max-width:100px}#ebookSearch{width:120px!important}}
+</style>
+<div id="ebookModal">
+ <div class="ebookTop">
+  <button class="ebookBtn" onclick="ebookClose()">✕</button>
+  <div class="etitle" id="ebookTitle">eBook Reader</div>
+  <button class="ebookBtn" onclick="ebookZoom(-.15)">−</button>
+  <span id="ebookZoomLabel">100%</span>
+  <button class="ebookBtn" onclick="ebookZoom(.15)">+</button>
+  <button class="ebookBtn" onclick="ebookFullscreen()">⛶</button>
+  <button class="ebookBtn" onclick="ebookBookmark()">🔖</button>
+  <input id="ebookSearch" placeholder="Search text" onkeydown="if(event.key==='Enter')ebookSearchText()">
+ </div>
+ <div id="ebookStage"><canvas id="ebookCanvas"></canvas><div id="ebookMsg"></div></div>
+ <div id="ebookBottom">
+  <button class="ebookBtn" onclick="ebookPrev()">‹ Previous</button>
+  <span id="ebookStatus">Page 1 / 1</span>
+  <button class="ebookBtn" onclick="ebookNext()">Next ›</button>
+ </div>
+</div>
+<script>
+let ebook={pdf:null,noteId:null,title:'',page:1,scale:1.15,rendering:false};
+function ebookKey(){return 'studynotes_ebook_'+ebook.noteId;}
+function ebookSaved(){try{return JSON.parse(localStorage.getItem(ebookKey())||'{}')}catch(e){return {}}}
+function ebookOpenUrl(url,note){
+ ebook.noteId=note.id; ebook.title=note.title||'eBook'; ebook.page=Number(ebookSaved().page||1); ebook.scale=Number(ebookSaved().scale||1.15);
+ document.getElementById('ebookTitle').textContent=ebook.title;
+ document.getElementById('ebookModal').style.display='block';
+ document.body.style.overflow='hidden';
+ (async()=>{const lib=await window.pdfjsReady;if(!lib){ebookToast('PDF reader load नहीं हुआ.');return;}
+   ebook.pdf=await lib.getDocument({url}).promise;
+   ebook.page=Math.min(Math.max(1,ebook.page),ebook.pdf.numPages);
+   await ebookRender();
+ })().catch(e=>ebookToast('PDF खोलने में समस्या: '+e.message));
+}
+async function ebookRender(){
+ if(!ebook.pdf||ebook.rendering)return; ebook.rendering=true;
+ const p=await ebook.pdf.getPage(ebook.page), vp=p.getViewport({scale:ebook.scale});
+ const c=document.getElementById('ebookCanvas'),ctx=c.getContext('2d'); c.width=vp.width;c.height=vp.height;
+ await p.render({canvasContext:ctx,viewport:vp}).promise;
+ document.getElementById('ebookStatus').textContent='Page '+ebook.page+' / '+ebook.pdf.numPages;
+ document.getElementById('ebookZoomLabel').textContent=Math.round(ebook.scale/1.15*100)+'%';
+ localStorage.setItem(ebookKey(),JSON.stringify({page:ebook.page,scale:ebook.scale}));
+ ebook.rendering=false;
+}
+function ebookPrev(){if(ebook.pdf&&ebook.page>1){ebook.page--;ebookRender()}}
+function ebookNext(){if(ebook.pdf&&ebook.page<ebook.pdf.numPages){ebook.page++;ebookRender()}}
+function ebookZoom(delta){ebook.scale=Math.min(3,Math.max(.6,ebook.scale+delta));ebookRender()}
+function ebookBookmark(){localStorage.setItem(ebookKey(),JSON.stringify({page:ebook.page,scale:ebook.scale,bookmark:true}));ebookToast('🔖 Page '+ebook.page+' bookmarked')}
+function ebookToast(t){const e=document.getElementById('ebookMsg');e.textContent=t;e.style.display='block';setTimeout(()=>e.style.display='none',1800)}
+function ebookClose(){document.getElementById('ebookModal').style.display='none';document.body.style.overflow='';ebook.pdf=null}
+function ebookFullscreen(){const e=document.getElementById('ebookModal');if(document.fullscreenElement)document.exitFullscreen();else e.requestFullscreen?.()}
+async function ebookSearchText(){
+ const q=document.getElementById('ebookSearch').value.trim().toLowerCase();if(!q||!ebook.pdf)return;
+ for(let i=ebook.page;i<=ebook.pdf.numPages;i++){const p=await ebook.pdf.getPage(i),c=await p.getTextContent(),t=c.items.map(x=>x.str).join(' ').toLowerCase();
+   if(t.includes(q)){ebook.page=i;await ebookRender();ebookToast('Text found on page '+i);return;}}
+ ebookToast('Text नहीं मिला');
+}
+function getLibrary(){try{return JSON.parse(localStorage.getItem('studynotes_library')||'[]')}catch(e){return []}}
+function saveLibrary(a){localStorage.setItem('studynotes_library',JSON.stringify(a))}
+function addToLibrary(n){let a=getLibrary().filter(x=>x.id!==n.id);a.unshift({id:n.id,title:n.title,book_name:n.book_name,subject:n.subject,price:n.price});saveLibrary(a);loadLibrary()}
+function loadLibrary(){
+ const a=getLibrary(),el=document.getElementById('libraryList');if(!el)return;
+ el.innerHTML=a.length?a.map(n=>`<div class="note"><div style="font-size:42px">📖</div><b>${esc(n.subject||'')}</b><h3>${esc(n.title||'')}</h3><p>${esc(n.book_name||'')}</p><button class="btn" onclick="openPurchased('${n.id}')">📖 Continue Reading</button></div>`).join(''):'<div class="alert">अभी आपकी library में कोई unlocked eBook नहीं है। Payment approve होने के बाद eBook यहाँ दिखाई देगी।</div>';
+}
+async function openPurchased(id){
+ const {data:n,error}=await sb.from('notes').select('*').eq('id',id).single();if(error||!n?.pdf_path){alert('eBook नहीं मिली.');return}
+ const {data:u,error:ue}=await sb.storage.from(PDF_BUCKET).createSignedUrl(n.pdf_path,1800);if(ue){alert(ue.message);return}
+ ebookOpenUrl(u.signedUrl,n);
+}
 </script>
 </body>
 </html>
